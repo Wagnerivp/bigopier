@@ -87,9 +87,9 @@ const generateBingoCard = (): BingoCardData => {
     return col;
   };
   const card = {
-    B: getColumn(1, 15, 5), I: getColumn(16, 30, 5),
-    N: getColumn(31, 45, 5), G: getColumn(46, 60, 5),
-    O: getColumn(61, 75, 5)
+    B: getColumn(1, 18, 5), I: getColumn(19, 36, 5),
+    N: getColumn(37, 54, 5), G: getColumn(55, 72, 5),
+    O: getColumn(73, 90, 5)
   };
   card.N[2] = 0; // FREE space
   return card;
@@ -125,7 +125,7 @@ async function startServer() {
     if (gameInterval) clearInterval(gameInterval);
     gameInterval = setInterval(() => {
       if (db.gameState.status === 'playing') {
-        const available = Array.from({ length: 75 }, (_, i) => i + 1).filter(n => !db.gameState.drawn_numbers.includes(n));
+        const available = Array.from({ length: 90 }, (_, i) => i + 1).filter(n => !db.gameState.drawn_numbers.includes(n));
         if (available.length > 0) {
           const next = available[Math.floor(Math.random() * available.length)];
           db.gameState.drawn_numbers.push(next);
@@ -151,8 +151,14 @@ async function startServer() {
       players: db.players.map(p => ({ id: p.id, name: p.name, paid_status: p.paid_status, tickets_count: p.tickets_count }))
     });
 
+    socket.on('requestState', () => {
+      socket.emit('stateUpdate', {
+        gameState: db.gameState,
+        players: db.players.map(p => ({ id: p.id, name: p.name, paid_status: p.paid_status, tickets_count: p.tickets_count }))
+      });
+    });
+
     socket.on('joinPlayer', (playerId) => {
-      socket.join(`player_${playerId}`);
       const p = db.players.find(x => x.id === playerId);
       if (p) socket.emit('playerData', p);
     });
@@ -232,12 +238,15 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post('/api/admin/reset', adminAuth, (req, res) => {
+  app.post('/api/admin/reset', adminAuth, async (req, res) => {
     db.gameState = {
       id: 'current', status: 'waiting_purchases', drawn_numbers: [], purchase_deadline: null,
       winner_1: null, winner_2: null, winner_3: null, total_pool: 0
     };
     db.players = [];
+    if (supabase) {
+      await supabase.from('players').delete().neq('id', 'dummy'); // Deletes all rows
+    }
     saveDB();
     broadcastState();
     if (gameInterval) clearInterval(gameInterval);

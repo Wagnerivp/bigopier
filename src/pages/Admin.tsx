@@ -45,6 +45,8 @@ export default function Admin() {
         setGameState(data.gameState);
       });
 
+      socket.emit('requestState');
+
       return () => {
         clearInterval(int);
         socket.off('stateUpdate');

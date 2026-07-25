@@ -22,6 +22,8 @@ export default function Jogar() {
       setPlayer(data);
     });
 
+    socket.emit('requestState');
+
     let savedPlayerId: string | null = null;
     try {
       savedPlayerId = localStorage.getItem('bingo_player_id');
@@ -172,7 +174,7 @@ export default function Jogar() {
           </div>
           <div className="text-right">
             <p className="text-xs text-zinc-400 uppercase tracking-widest">Bolas Sorteadas</p>
-            <p className="text-lg font-bold text-white">{gameState.drawn_numbers.length} / 75</p>
+            <p className="text-lg font-bold text-white">{gameState.drawn_numbers.length} / 90</p>
           </div>
         </div>
         

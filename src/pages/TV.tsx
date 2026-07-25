@@ -15,6 +15,9 @@ export default function TV() {
       setGameState(data.gameState);
       setPlayers(data.players);
     });
+    
+    socket.emit('requestState');
+
     return () => {
       socket.off('stateUpdate');
     };
