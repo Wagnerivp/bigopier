@@ -17,7 +17,16 @@ export default function Jogar() {
   useEffect(() => {
     socket.on('stateUpdate', (data: { gameState: GameState, players: Player[] }) => {
       setGameState(data.gameState);
-      if (data.players) setPlayers(data.players);
+      if (data.players) {
+        setPlayers(data.players);
+        setPlayer(curr => {
+          if (curr && !data.players.find(p => p.id === curr.id)) {
+            try { localStorage.removeItem('bingo_player_id'); } catch(e) {}
+            return null;
+          }
+          return curr;
+        });
+      }
     });
     
     socket.on('playerData', (data: Player) => {
