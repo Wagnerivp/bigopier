@@ -16,7 +16,14 @@ export default function TV() {
       setPlayers(data.players);
     });
     
-    socket.emit('requestState');
+    fetch('/api/state').then(r => r.json()).then(data => {
+      setGameState(data.gameState);
+      if (data.players) setPlayers(data.players);
+    }).catch(e => console.error(e));
+
+    const onConnect = () => socket.emit('requestState');
+    socket.on('connect', onConnect);
+    if (socket.connected) onConnect();
 
     return () => {
       socket.off('stateUpdate');

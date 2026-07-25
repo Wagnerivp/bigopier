@@ -24,7 +24,19 @@ export default function Jogar() {
       setPlayer(data);
     });
 
-    socket.emit('requestState');
+    fetch('/api/state').then(r => r.json()).then(data => {
+      setGameState(data.gameState);
+      if (data.players) setPlayers(data.players);
+    }).catch(e => console.error(e));
+
+    const onConnect = () => {
+      socket.emit('requestState');
+      if (savedPlayerId) {
+        socket.emit('joinPlayer', savedPlayerId);
+      }
+    };
+    socket.on('connect', onConnect);
+    if (socket.connected) onConnect();
 
     let savedPlayerId: string | null = null;
     try {

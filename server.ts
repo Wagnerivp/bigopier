@@ -166,6 +166,13 @@ async function startServer() {
   });
 
   // API Routes
+  app.get('/api/state', (req, res) => {
+    res.json({
+      gameState: db.gameState,
+      players: db.players.map(p => ({ id: p.id, name: p.name, paid_status: p.paid_status, tickets_count: p.tickets_count }))
+    });
+  });
+
   app.post('/api/register', (req, res) => {
     const { name, phone, tickets_count } = req.body;
     let player = db.players.find(p => p.phone === phone);

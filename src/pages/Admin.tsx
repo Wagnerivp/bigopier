@@ -45,11 +45,18 @@ export default function Admin() {
         setGameState(data.gameState);
       });
 
-      socket.emit('requestState');
+      fetch('/api/state').then(r => r.json()).then(data => {
+        setGameState(data.gameState);
+      }).catch(e => console.error(e));
+
+      const onConnect = () => socket.emit('requestState');
+      socket.on('connect', onConnect);
+      if (socket.connected) onConnect();
 
       return () => {
         clearInterval(int);
         socket.off('stateUpdate');
+        socket.off('connect', onConnect);
       };
     }
   }, [token]);
