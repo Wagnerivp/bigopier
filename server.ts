@@ -5,6 +5,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
 // Minimal types for the server
 type GameStatus = 'waiting_purchases' | 'playing' | 'bingo_paused_1' | 'bingo_paused_2' | 'bingo_paused_3' | 'finished';

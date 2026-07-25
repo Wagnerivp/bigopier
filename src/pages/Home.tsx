@@ -5,7 +5,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 text-white">
       <div className="w-full max-w-md bg-[#111] p-8 rounded-3xl shadow-xl border border-[#333] text-center">
-        <h1 className="text-4xl font-black text-[#FFD700] mb-2 tracking-tighter">BINGO DO BAR</h1>
+        <h1 className="text-4xl font-black text-[#FFD700] mb-2 tracking-tighter">BINGO DO PIER</h1>
         <p className="text-gray-400 mb-8">Selecione o seu perfil de acesso</p>
         
         <div className="flex flex-col gap-4">

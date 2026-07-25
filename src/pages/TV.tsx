@@ -88,7 +88,7 @@ export default function TV() {
             <span className="text-black font-black text-2xl -rotate-45">B</span>
           </div>
           <div>
-            <h1 className="text-2xl font-black tracking-tighter">BINGO DO BAR</h1>
+            <h1 className="text-2xl font-black tracking-tighter">BINGO DO PIER</h1>
             <p className={`text-xs font-mono tracking-widest uppercase ${isBingoPaused ? 'text-black' : 'text-[#00FF00]'}`}>Sorteio Automático • 8s</p>
           </div>
         </div>
@@ -170,7 +170,7 @@ export default function TV() {
           
           {gameState.status === 'waiting_purchases' && (
             <div className="relative z-10 text-center">
-              <h1 className="text-6xl font-black text-[#FFD700] mb-8 tracking-tighter">BINGO DO BAR</h1>
+              <h1 className="text-6xl font-black text-[#FFD700] mb-8 tracking-tighter">BINGO DO PIER</h1>
               <p className="text-2xl text-gray-400 mb-4">Compre suas cartelas pelo celular!</p>
               <div className="text-2xl bg-black p-6 rounded border border-[#333] inline-block">
                 Acesse: <span className="text-[#00FF00] font-mono">{window.location.host}/jogar</span>

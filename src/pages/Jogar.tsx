@@ -7,6 +7,7 @@ const socket = io();
 
 export default function Jogar() {
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
   const [player, setPlayer] = useState<Player | null>(null);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -14,8 +15,9 @@ export default function Jogar() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    socket.on('stateUpdate', (data: { gameState: GameState }) => {
+    socket.on('stateUpdate', (data: { gameState: GameState, players: Player[] }) => {
       setGameState(data.gameState);
+      if (data.players) setPlayers(data.players);
     });
     
     socket.on('playerData', (data: Player) => {
@@ -91,7 +93,7 @@ export default function Jogar() {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
         <div className="w-full max-w-md bg-zinc-900 p-8 rounded-3xl shadow-xl border border-zinc-800">
-          <h1 className="text-4xl font-black text-amber-500 text-center mb-2">BINGO</h1>
+          <h1 className="text-4xl font-black text-amber-500 text-center mb-2">BINGO DO PIER</h1>
           <p className="text-zinc-400 text-center mb-8">Entre para jogar</p>
           
           <form onSubmit={handleRegister} className="space-y-4">
@@ -171,6 +173,10 @@ export default function Jogar() {
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-widest">Prêmios</p>
             <p className="text-lg font-bold text-amber-500">Total: R$ {gameState.total_pool.toFixed(2)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-zinc-400 uppercase tracking-widest">Jogadores</p>
+            <p className="text-lg font-bold text-white">{players.filter(p => p.paid_status).length} <span className="text-sm font-normal text-green-500">online</span></p>
           </div>
           <div className="text-right">
             <p className="text-xs text-zinc-400 uppercase tracking-widest">Bolas Sorteadas</p>
