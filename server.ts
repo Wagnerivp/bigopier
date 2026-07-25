@@ -177,6 +177,9 @@ async function startServer() {
     const { name, phone, tickets_count } = req.body;
     let player = db.players.find(p => p.phone === phone);
     if (!player) {
+      if (db.gameState.status !== 'waiting_purchases') {
+        return res.status(400).json({ error: "Vendas Encerradas. Apenas jogadores já cadastrados podem entrar." });
+      }
       player = {
         id: crypto.randomUUID(),
         name, phone, tickets_count: Math.min(5, Math.max(1, tickets_count)),

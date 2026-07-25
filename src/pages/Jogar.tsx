@@ -71,15 +71,19 @@ export default function Jogar() {
         body: JSON.stringify({ name, phone, tickets_count: tickets })
       });
       const data = await res.json();
-      setPlayer(data);
-      try {
-        localStorage.setItem('bingo_player_id', data.id);
-      } catch (e) {
-        console.warn('localStorage setItem failed');
+      if (data.error) {
+        alert(data.error);
+      } else {
+        setPlayer(data);
+        try {
+          localStorage.setItem('bingo_player_id', data.id);
+        } catch (e) {
+          console.warn('localStorage setItem failed');
+        }
+        socket.emit('joinPlayer', data.id);
       }
-      socket.emit('joinPlayer', data.id);
     } catch (e) {
-      alert("Erro ao registrar.");
+      alert("Erro ao conectar.");
     }
     setIsLoading(false);
   };
@@ -143,10 +147,10 @@ export default function Jogar() {
               </select>
             </div>
             <button 
-              disabled={isLoading || gameState.status !== 'waiting_purchases'} 
+              disabled={isLoading} 
               className="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold py-4 rounded-xl mt-6 transition-colors disabled:opacity-50"
             >
-              {gameState.status !== 'waiting_purchases' ? 'Vendas Encerradas' : isLoading ? 'Aguarde...' : 'Comprar Cartelas'}
+              {gameState.status !== 'waiting_purchases' ? (isLoading ? 'Aguarde...' : 'Entrar (Cadastro Existente)') : (isLoading ? 'Aguarde...' : 'Comprar / Entrar')}
             </button>
           </form>
         </div>

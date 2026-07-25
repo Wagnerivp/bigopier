@@ -1,0 +1,26 @@
+-- SQL Script para o Supabase
+
+CREATE TABLE IF NOT EXISTS public.game_state (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  drawn_numbers INTEGER[] DEFAULT '{}'::integer[],
+  purchase_deadline BIGINT,
+  winner_1 TEXT,
+  winner_2 TEXT,
+  winner_3 TEXT,
+  total_pool NUMERIC DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS public.players (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT,
+  tickets_count INTEGER DEFAULT 0,
+  paid_status BOOLEAN DEFAULT FALSE,
+  cards JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO public.game_state (id, status, drawn_numbers, purchase_deadline, winner_1, winner_2, winner_3, total_pool)
+VALUES ('current', 'waiting_purchases', '{}'::integer[], null, null, null, null, 0)
+ON CONFLICT (id) DO NOTHING;
