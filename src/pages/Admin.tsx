@@ -95,6 +95,13 @@ export default function Admin() {
     await fetch(`/api/admin/resume`, { method: 'POST', headers: { 'Authorization': `Basic ${token}` }});
   };
 
+  const handleNewRound = async () => {
+    if (!token) return;
+    if (confirm("Iniciar nova rodada com os mesmos jogadores e cartelas?")) {
+      await fetch(`/api/admin/new_round`, { method: 'POST', headers: { 'Authorization': `Basic ${token}` }});
+    }
+  };
+
   const handleReset = async () => {
     if (!token) return;
     if (confirm("Tem certeza que deseja RESETAR TUDO e apagar todos os jogadores?")) {
@@ -155,7 +162,8 @@ export default function Admin() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
           <button onClick={handleStart} className="bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold">Iniciar Sorteio</button>
           <button onClick={handleResume} className="bg-green-600 hover:bg-green-500 py-4 rounded-xl font-bold">Continuar (Após Bingo)</button>
-          <button onClick={handleReset} className="bg-red-600 hover:bg-red-500 py-4 rounded-xl font-bold md:col-span-2">RESETAR TUDO</button>
+          <button onClick={handleNewRound} className="bg-purple-600 hover:bg-purple-500 py-4 rounded-xl font-bold">Nova Rodada (Mesmas Cartelas)</button>
+          <button onClick={handleReset} className="bg-red-600 hover:bg-red-500 py-4 rounded-xl font-bold">Zerar Tudo (Novo Jogo)</button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

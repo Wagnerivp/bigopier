@@ -249,6 +249,20 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.post('/api/admin/new_round', adminAuth, async (req, res) => {
+    db.gameState = {
+      ...db.gameState,
+      status: 'playing',
+      drawn_numbers: [],
+      winner_1: null, winner_2: null, winner_3: null
+    };
+    saveDB();
+    broadcastState();
+    if (gameInterval) clearInterval(gameInterval);
+    startGameLoop();
+    res.json({ success: true });
+  });
+
   app.post('/api/admin/reset', adminAuth, async (req, res) => {
     db.gameState = {
       id: 'current', status: 'waiting_purchases', drawn_numbers: [], purchase_deadline: null,
