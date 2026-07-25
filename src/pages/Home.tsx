@@ -12,8 +12,11 @@ export default function Home() {
           <Link to="/jogar" className="bg-[#00FF00] hover:bg-[#00cc00] text-black font-bold py-4 rounded-xl transition-colors text-lg uppercase tracking-wider">
             Área do Cliente (Jogar)
           </Link>
+          <Link to="/admin" className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-colors text-lg uppercase tracking-wider">
+            Iniciar Novo Jogo (Admin)
+          </Link>
           <Link to="/admin" className="bg-[#222] hover:bg-[#333] border border-[#444] text-white font-bold py-4 rounded-xl transition-colors uppercase tracking-wider">
-            Login de Administrador
+            Painel de Controle
           </Link>
           <Link to="/tv" className="bg-[#111] hover:bg-[#222] border border-[#333] text-gray-400 font-bold py-3 rounded-xl transition-colors text-sm mt-4 uppercase tracking-wider">
             Abrir Tela da TV
