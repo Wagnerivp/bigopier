@@ -24,6 +24,13 @@ export default function Jogar() {
       setPlayer(data);
     });
 
+    let savedPlayerId: string | null = null;
+    try {
+      savedPlayerId = localStorage.getItem('bingo_player_id');
+    } catch (e) {
+      console.warn('localStorage not available', e);
+    }
+
     fetch('/api/state').then(r => r.json()).then(data => {
       setGameState(data.gameState);
       if (data.players) setPlayers(data.players);
@@ -38,12 +45,6 @@ export default function Jogar() {
     socket.on('connect', onConnect);
     if (socket.connected) onConnect();
 
-    let savedPlayerId: string | null = null;
-    try {
-      savedPlayerId = localStorage.getItem('bingo_player_id');
-    } catch (e) {
-      console.warn('localStorage not available', e);
-    }
     if (savedPlayerId) {
       socket.emit('joinPlayer', savedPlayerId);
       // Fetch full player data
