@@ -6,12 +6,12 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-import { GameStatus, GameState, User, Rodada, Cartela, CartelaStatus, BingoCardData } from './src/types';
+import { GameStatus, GameState, User, Rodada, Cartela, CartelaStatus, BingoCardData } from './src/types.ts';
 
 // Connect to Supabase
 const supabaseUrl = process.env.VITE_SUPABASE_URL?.replace('/rest/v1/', '') || '';
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 // In-memory state
 let activeRodada: Rodada | null = null;
@@ -128,22 +128,30 @@ async function startServer() {
   // Client API
   app.post('/api/login', async (req, res) => {
     const { nome_completo, telefone } = req.body;
-    let user = allUsers.find(u => u.telefone === telefone);
-    if (!user) {
-      user = {
-        id: crypto.randomUUID(),
-        nome_completo,
-        telefone,
-        saldo_fiado: 0,
-      };
-      if (supabase) {
-        const { data } = await supabase.from('users').insert(user).select().single();
-        if (data) user = data;
+    try {
+      let user = allUsers.find(u => u.telefone === telefone);
+      if (!user) {
+        user = {
+          id: crypto.randomUUID(),
+          nome_completo,
+          telefone,
+          saldo_fiado: 0,
+        };
+        if (supabase) {
+          const { data, error } = await supabase.from('users').insert(user).select().single();
+          if (error) {
+            console.error('Supabase users insert error:', error);
+          }
+          if (data) user = data;
+        }
+        allUsers.push(user);
+        broadcastState();
       }
-      allUsers.push(user);
-      broadcastState();
+      res.json(user);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message || 'Server error' });
     }
-    res.json(user);
   });
 
   app.post('/api/buy_cards', async (req, res) => {

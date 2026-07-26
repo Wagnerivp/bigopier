@@ -40,7 +40,7 @@ export function Admin() {
 
   const action = async (endpoint: string, body?: any) => {
     try {
-      await fetch(`/api/admin/${endpoint}`, {
+      const res = await fetch(`/api/admin/${endpoint}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -48,8 +48,10 @@ export function Admin() {
         },
         body: body ? JSON.stringify(body) : undefined
       });
+      const data = await res.json();
+      if (!res.ok) alert(data.error || 'Erro na ação');
     } catch (e) {
-      alert('Erro na ação');
+      alert('Erro na requisição');
     }
   };
 
