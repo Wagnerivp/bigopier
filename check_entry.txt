@@ -1,0 +1,1 @@
+If the issue persists, the platform build deployer requires something else. I will write a minimal index.js wrapper in root as entry just in case

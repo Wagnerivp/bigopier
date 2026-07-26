@@ -1,29 +1,30 @@
-export type GameStatus =
-  | 'waiting_purchases'
-  | 'playing'
-  | 'bingo_paused_1'
-  | 'bingo_paused_2'
-  | 'bingo_paused_3'
-  | 'finished';
+export type GameStatus = 'aberta' | 'andamento' | 'finalizada';
 
-export interface GameState {
-  id: string; // 'current'
-  status: GameStatus;
-  drawn_numbers: number[]; // e.g. [1, 15, 42, 60]
-  purchase_deadline: number | null; // Timestamp
-  winner_1: string | null; // Player ID
-  winner_2: string | null;
-  winner_3: string | null;
-  total_pool: number; // calculated from tickets
+export interface User {
+  id: string;
+  nome_completo: string;
+  telefone: string;
+  saldo_fiado: number;
+  created_at?: string;
 }
 
-export interface Player {
-  id: string; // unique
-  name: string;
-  phone: string;
-  tickets_count: number; // 1 to 5
-  paid_status: boolean;
-  cards: BingoCardData[];
+export interface Rodada {
+  id: string;
+  status: GameStatus;
+  sorteio_atual_json: number[];
+  vencedor_id: string | null;
+  created_at?: string;
+}
+
+export type CartelaStatus = 'pendente_pagamento' | 'pago_pix' | 'fiado' | 'cancelado';
+
+export interface Cartela {
+  id: string;
+  user_id: string;
+  rodada_id: string;
+  numeros_json: BingoCardData;
+  status: CartelaStatus;
+  created_at?: string;
 }
 
 export type BingoCardData = {
@@ -32,4 +33,10 @@ export type BingoCardData = {
   N: number[];
   G: number[];
   O: number[];
+};
+
+export type GameState = {
+  rodada: Rodada | null;
+  cartelas: Cartela[];
+  users: User[];
 };

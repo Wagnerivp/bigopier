@@ -2,80 +2,42 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { Server } from 'socket.io';
 import http from 'http';
-import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-// Minimal types for the server
-type GameStatus = 'waiting_purchases' | 'playing' | 'bingo_paused_1' | 'bingo_paused_2' | 'bingo_paused_3' | 'finished';
-type BingoCardData = { B: number[]; I: number[]; N: number[]; G: number[]; O: number[] };
-type Player = { id: string; name: string; phone: string; tickets_count: number; paid_status: boolean; cards: BingoCardData[] };
-type GameState = {
-  id: string; status: GameStatus; drawn_numbers: number[]; purchase_deadline: number | null;
-  winner_1: string | null; winner_2: string | null; winner_3: string | null; total_pool: number;
-};
+import { GameStatus, GameState, User, Rodada, Cartela, CartelaStatus, BingoCardData } from './src/types';
 
-const DB_FILE = path.join(process.cwd(), 'db.json');
-
-let db: { gameState: GameState; players: Player[] } = {
-  gameState: {
-    id: 'current', status: 'waiting_purchases', drawn_numbers: [], purchase_deadline: null,
-    winner_1: null, winner_2: null, winner_3: null, total_pool: 0
-  },
-  players: []
-};
-
+// Connect to Supabase
 const supabaseUrl = process.env.VITE_SUPABASE_URL?.replace('/rest/v1/', '') || '';
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-// Load DB
+// In-memory state
+let activeRodada: Rodada | null = null;
+let currentCartelas: Cartela[] = [];
+let allUsers: User[] = [];
+
+// Load state from DB
 const loadDB = async () => {
-  if (supabase) {
-    try {
-      const { data: gsData } = await supabase.from('game_state').select('*').eq('id', 'current').single();
-      if (gsData) {
-        db.gameState = { ...db.gameState, ...gsData };
-      }
-      const { data: plData } = await supabase.from('players').select('*');
-      if (plData) {
-        db.players = plData;
-      }
-      console.log('Loaded state from Supabase');
-      return;
-    } catch (e) {
-      console.error('Error loading from Supabase', e);
-    }
-  }
+  if (!supabase) return;
+  try {
+    const { data: usersData } = await supabase.from('users').select('*');
+    if (usersData) allUsers = usersData;
 
-  if (fs.existsSync(DB_FILE)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-      if (data.gameState && data.players) db = data;
-    } catch (e) {
-      console.error("Error loading db.json", e);
+    const { data: rodadaData } = await supabase.from('rodadas').select('*').in('status', ['aberta', 'andamento']).order('created_at', { ascending: false }).limit(1);
+    if (rodadaData && rodadaData.length > 0) {
+      activeRodada = rodadaData[0];
+      const { data: cartelasData } = await supabase.from('cartelas').select('*').eq('rodada_id', activeRodada.id).neq('status', 'cancelado');
+      if (cartelasData) currentCartelas = cartelasData;
+    } else {
+      activeRodada = null;
+      currentCartelas = [];
     }
+    console.log('Loaded state from Supabase');
+  } catch (e) {
+    console.error('Error loading from Supabase', e);
   }
-};
-
-// Save DB
-const saveDBAsync = async () => {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-  if (supabase) {
-    try {
-      await supabase.from('game_state').update(db.gameState).eq('id', 'current');
-      if (db.players.length > 0) {
-        await supabase.from('players').upsert(db.players);
-      }
-    } catch (e) {
-      console.error('Error saving to Supabase', e);
-    }
-  }
-};
-
-const saveDB = () => {
-  saveDBAsync().catch(console.error);
 };
 
 const generateBingoCard = (): BingoCardData => {
@@ -101,208 +63,236 @@ async function startServer() {
   const app = express();
   app.use(express.json());
   const PORT = 3000;
-
   const server = http.createServer(app);
   const io = new Server(server, { cors: { origin: '*' } });
 
-  // Realtime game loop
   let gameInterval: NodeJS.Timeout | null = null;
-  
-  const calculatePool = () => {
-    const totalTickets = db.players.filter(p => p.paid_status).reduce((acc, p) => acc + p.tickets_count, 0);
-    db.gameState.total_pool = totalTickets; // 1 BRL per ticket
-    saveDB();
-  };
 
   const broadcastState = () => {
-    calculatePool();
     io.emit('stateUpdate', {
-      gameState: db.gameState,
-      players: db.players.map(p => ({ id: p.id, name: p.name, paid_status: p.paid_status, tickets_count: p.tickets_count })) // Omit cards/phone for privacy on broadcast
+      rodada: activeRodada,
+      cartelas: currentCartelas,
+      users: allUsers,
     });
+  };
+
+  const syncSupabaseRodada = async () => {
+    if (supabase && activeRodada) {
+      await supabase.from('rodadas').upsert(activeRodada);
+    }
+  };
+
+  const syncSupabaseUsers = async (usersToUpdate: User[]) => {
+    if (supabase && usersToUpdate.length > 0) {
+      for (const u of usersToUpdate) {
+        await supabase.from('users').upsert(u);
+      }
+    }
   };
 
   const startGameLoop = () => {
     if (gameInterval) clearInterval(gameInterval);
-    gameInterval = setInterval(() => {
-      if (db.gameState.status === 'playing') {
-        const available = Array.from({ length: 90 }, (_, i) => i + 1).filter(n => !db.gameState.drawn_numbers.includes(n));
+    gameInterval = setInterval(async () => {
+      if (activeRodada && activeRodada.status === 'andamento') {
+        const available = Array.from({ length: 90 }, (_, i) => i + 1).filter(n => !activeRodada!.sorteio_atual_json.includes(n));
         if (available.length > 0) {
           const next = available[Math.floor(Math.random() * available.length)];
-          db.gameState.drawn_numbers.push(next);
-          saveDB();
+          activeRodada.sorteio_atual_json.push(next);
+          await syncSupabaseRodada();
           broadcastState();
-        } else {
-          db.gameState.status = 'finished';
-          saveDB();
-          broadcastState();
-          if (gameInterval) clearInterval(gameInterval);
         }
       }
-    }, 8000);
+    }, 6000); // Slower for TV animations
   };
 
-  if (db.gameState.status === 'playing') {
+  if (activeRodada && activeRodada.status === 'andamento') {
     startGameLoop();
   }
 
   io.on('connection', (socket) => {
     socket.emit('stateUpdate', {
-      gameState: db.gameState,
-      players: db.players.map(p => ({ id: p.id, name: p.name, paid_status: p.paid_status, tickets_count: p.tickets_count }))
+      rodada: activeRodada,
+      cartelas: currentCartelas,
+      users: allUsers,
     });
-
+    
     socket.on('requestState', () => {
       socket.emit('stateUpdate', {
-        gameState: db.gameState,
-        players: db.players.map(p => ({ id: p.id, name: p.name, paid_status: p.paid_status, tickets_count: p.tickets_count }))
+        rodada: activeRodada,
+        cartelas: currentCartelas,
+        users: allUsers,
       });
     });
-
-    socket.on('joinPlayer', (playerId) => {
-      const p = db.players.find(x => x.id === playerId);
-      if (p) socket.emit('playerData', p);
-    });
   });
 
-  // API Routes
-  app.get('/api/state', (req, res) => {
-    res.json({
-      gameState: db.gameState,
-      players: db.players.map(p => ({ id: p.id, name: p.name, paid_status: p.paid_status, tickets_count: p.tickets_count }))
-    });
-  });
-
-  app.post('/api/register', (req, res) => {
-    const { name, phone, tickets_count } = req.body;
-    let player = db.players.find(p => p.phone === phone);
-    if (!player) {
-      if (db.gameState.status !== 'waiting_purchases') {
-        return res.status(400).json({ error: "Vendas Encerradas. Apenas jogadores já cadastrados podem entrar." });
-      }
-      player = {
+  // Client API
+  app.post('/api/login', async (req, res) => {
+    const { nome_completo, telefone } = req.body;
+    let user = allUsers.find(u => u.telefone === telefone);
+    if (!user) {
+      user = {
         id: crypto.randomUUID(),
-        name, phone, tickets_count: Math.min(5, Math.max(1, tickets_count)),
-        paid_status: false,
-        cards: []
+        nome_completo,
+        telefone,
+        saldo_fiado: 0,
       };
-      db.players.push(player);
-      saveDB();
+      if (supabase) {
+        const { data } = await supabase.from('users').insert(user).select().single();
+        if (data) user = data;
+      }
+      allUsers.push(user);
       broadcastState();
     }
-    res.json(player);
+    res.json(user);
   });
 
-  app.get('/api/player/:id', (req, res) => {
-    const player = db.players.find(p => p.id === req.params.id);
-    if (!player) return res.status(404).json({ error: "Not found" });
-    res.json(player);
-  });
+  app.post('/api/buy_cards', async (req, res) => {
+    const { userId, count } = req.body;
+    const user = allUsers.find(u => u.id === userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!activeRodada || activeRodada.status !== 'aberta') return res.status(400).json({ error: 'Nenhuma rodada aberta para compra.' });
 
-  // Admin Routes
-  const adminAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.headers.authorization !== 'Basic MjI5OTIwNDA5NDE6MDUwOA==') { // base64 of 22992040941:0508
-      return res.status(401).json({ error: 'Unauthorized' });
+    const newCartelas: Cartela[] = [];
+    for (let i = 0; i < count; i++) {
+      newCartelas.push({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        rodada_id: activeRodada.id,
+        numeros_json: generateBingoCard(),
+        status: 'pendente_pagamento',
+      });
     }
-    next();
+
+    if (supabase) {
+      const { data, error } = await supabase.from('cartelas').insert(newCartelas).select();
+      if (error) console.error('Supabase cartelas insert error:', error);
+      if (data) {
+        currentCartelas.push(...data);
+      } else {
+        currentCartelas.push(...newCartelas);
+      }
+    } else {
+      currentCartelas.push(...newCartelas);
+    }
+    broadcastState();
+    res.json({ success: true, cartelas: newCartelas });
+  });
+  
+  app.post('/api/bingo', async (req, res) => {
+    const { cartelaId } = req.body;
+    const cartela = currentCartelas.find(c => c.id === cartelaId);
+    if (!cartela) return res.status(404).json({ error: 'Cartela not found' });
+    if (!['pago_pix', 'fiado'].includes(cartela.status)) return res.status(400).json({ error: 'Cartela não está paga!' });
+    
+    if (activeRodada && activeRodada.status === 'andamento') {
+      activeRodada.status = 'finalizada';
+      activeRodada.vencedor_id = cartela.user_id;
+      await syncSupabaseRodada();
+      
+      const user = allUsers.find(u => u.id === cartela.user_id);
+      if (user) {
+        // give prize (credit) - for now just an example value or handled manually
+      }
+      if (gameInterval) clearInterval(gameInterval);
+      broadcastState();
+    }
+    res.json({ success: true });
+  });
+
+  // Admin Auth Middleware
+  const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader === 'Basic MjI5OTIwNDA5NDE6MDUwOA==') {
+       return next();
+    }
+    if (supabase) {
+      // Actually fetch from DB (simplification for preview, fallback to hardcoded)
+      if (authHeader === 'Basic MjI5OTIwNDA5NDE6MDUwOA==') return next();
+    }
+    res.status(401).json({ error: 'Unauthorized' });
   };
 
-  app.get('/api/admin/players', adminAuth, (req, res) => {
-    res.json(db.players);
-  });
-
-  app.post('/api/admin/approve/:id', adminAuth, (req, res) => {
-    const player = db.players.find(p => p.id === req.params.id);
-    if (player) {
-      player.paid_status = true;
-      player.cards = Array.from({ length: player.tickets_count }, () => generateBingoCard());
-      saveDB();
-      broadcastState();
-      io.to(`player_${player.id}`).emit('playerData', player);
+  app.post('/api/admin/login', (req, res) => {
+    const { telefone, senha } = req.body;
+    if (telefone === '22992040941' && senha === '0508') {
+      res.json({ token: 'MjI5OTIwNDA5NDE6MDUwOA==' });
+    } else {
+      res.status(401).json({ error: 'Invalid credentials' });
     }
-    res.json({ success: true });
   });
 
-  app.post('/api/admin/start', adminAuth, (req, res) => {
-    if (db.gameState.status === 'waiting_purchases' || db.gameState.status === 'finished' || db.gameState.status === 'playing') {
-      db.gameState.status = 'playing';
-      saveDB();
-      broadcastState();
-      startGameLoop();
-    }
-    res.json({ success: true });
+  app.post('/api/tv/login', (req, res) => {
+    const { senha } = req.body;
+    if (senha === '0508') res.json({ success: true });
+    else res.status(401).json({ error: 'Invalid PIN' });
   });
 
-  app.post('/api/admin/resume', adminAuth, (req, res) => {
-    if (db.gameState.status.startsWith('bingo_paused')) {
-      if (db.gameState.status === 'bingo_paused_1') db.gameState.status = 'playing'; 
-      if (db.gameState.status === 'bingo_paused_2') db.gameState.status = 'playing';
-      if (db.gameState.status === 'bingo_paused_3') db.gameState.status = 'finished';
-      saveDB();
-      broadcastState();
-      if (db.gameState.status === 'playing') {
-        startGameLoop();
-      } else if (gameInterval) {
-        clearInterval(gameInterval);
-      }
-    }
-    res.json({ success: true });
-  });
-
-  app.post('/api/admin/new_round', adminAuth, async (req, res) => {
-    db.gameState = {
-      ...db.gameState,
-      status: 'playing',
-      drawn_numbers: [],
-      winner_1: null, winner_2: null, winner_3: null
+  // Admin Actions
+  app.post('/api/admin/rodada/abrir', adminAuth, async (req, res) => {
+    if (activeRodada && activeRodada.status !== 'finalizada') return res.status(400).json({ error: 'Rodada já existe.' });
+    const novaRodada: Rodada = {
+      id: crypto.randomUUID(),
+      status: 'aberta',
+      sorteio_atual_json: [],
+      vencedor_id: null,
     };
-    saveDB();
-    broadcastState();
-    if (gameInterval) clearInterval(gameInterval);
-    startGameLoop();
-    res.json({ success: true });
-  });
-
-  app.post('/api/admin/reset', adminAuth, async (req, res) => {
-    db.gameState = {
-      id: 'current', status: 'waiting_purchases', drawn_numbers: [], purchase_deadline: null,
-      winner_1: null, winner_2: null, winner_3: null, total_pool: 0
-    };
-    db.players = [];
     if (supabase) {
-      await supabase.from('players').delete().neq('id', 'dummy'); // Deletes all rows
+      const { data, error } = await supabase.from('rodadas').insert(novaRodada).select().single();
+      if (error) console.error('Supabase rodadas insert error:', error);
+      if (data) activeRodada = data;
+      else activeRodada = novaRodada;
+    } else {
+      activeRodada = novaRodada;
     }
-    saveDB();
+    currentCartelas = []; // Reset cartelas on new round
     broadcastState();
-    if (gameInterval) clearInterval(gameInterval);
-    res.json({ success: true });
+    res.json(activeRodada);
   });
 
-  app.post('/api/bingo', (req, res) => {
-    const { playerId } = req.body;
-    const player = db.players.find(p => p.id === playerId);
-    if (!player || !player.paid_status) return res.status(400).json({ error: "Invalid player" });
+  app.post('/api/admin/rodada/iniciar', adminAuth, async (req, res) => {
+    if (!activeRodada || activeRodada.status !== 'aberta') return res.status(400).json({ error: 'Rodada não está aberta.' });
+    activeRodada.status = 'andamento';
+    await syncSupabaseRodada();
+    startGameLoop();
+    broadcastState();
+    res.json(activeRodada);
+  });
 
-    if (db.gameState.status === 'playing') {
-      if (!db.gameState.winner_1) {
-        db.gameState.winner_1 = player.id;
-        db.gameState.status = 'bingo_paused_1';
-      } else if (!db.gameState.winner_2) {
-        db.gameState.winner_2 = player.id;
-        db.gameState.status = 'bingo_paused_2';
-      } else if (!db.gameState.winner_3) {
-        db.gameState.winner_3 = player.id;
-        db.gameState.status = 'bingo_paused_3';
+  app.post('/api/admin/cartela/status', adminAuth, async (req, res) => {
+    const { cartelaId, status } = req.body;
+    const cartela = currentCartelas.find(c => c.id === cartelaId);
+    if (!cartela) return res.status(404).json({ error: 'Cartela not found' });
+    cartela.status = status;
+    
+    // Manage fiado
+    if (status === 'fiado') {
+      const user = allUsers.find(u => u.id === cartela.user_id);
+      if (user) {
+        user.saldo_fiado += 1; // Arbitrary 1 BRL/unit per cartela
+        await syncSupabaseUsers([user]);
       }
-      saveDB();
-      broadcastState();
-      if (gameInterval) clearInterval(gameInterval);
     }
-    res.json({ success: true });
+    
+    if (supabase) {
+      await supabase.from('cartelas').update({ status }).eq('id', cartela.id);
+    }
+    broadcastState();
+    res.json(cartela);
+  });
+  
+  app.post('/api/admin/user/pagar_fiado', adminAuth, async (req, res) => {
+    const { userId, amount } = req.body;
+    const user = allUsers.find(u => u.id === userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    user.saldo_fiado -= amount;
+    await syncSupabaseUsers([user]);
+    broadcastState();
+    res.json(user);
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== 'production' && !process.env.IS_PROD_BUILD) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -318,10 +308,6 @@ async function startServer() {
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
-    // Resume game loop if started
-    if (db.gameState.status === 'playing') {
-      startGameLoop();
-    }
   });
 }
 

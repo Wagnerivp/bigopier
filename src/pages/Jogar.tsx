@@ -1,260 +1,220 @@
-import React, { useState, useEffect } from 'react';
-import { io } from 'socket.io-client';
-import { GameState, Player } from '../types';
-import BingoCard from '../components/BingoCard';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { motion } from 'motion/react';
+import { io, Socket } from 'socket.io-client';
+import { GameState, Cartela, User } from '../types';
 
-const socket = io();
-
-export default function Jogar() {
+export function Jogar() {
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [player, setPlayer] = useState<Player | null>(null);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [tickets, setTickets] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [cartelas, setCartelas] = useState<Cartela[]>([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  const userId = localStorage.getItem('bingo_user_id');
 
   useEffect(() => {
-    socket.on('stateUpdate', (data: { gameState: GameState, players: Player[] }) => {
-      setGameState(data.gameState);
-      if (data.players) {
-        setPlayers(data.players);
-        setPlayer(curr => {
-          if (curr && !data.players.find(p => p.id === curr.id)) {
-            try { localStorage.removeItem('bingo_player_id'); } catch(e) {}
-            return null;
-          }
-          return curr;
-        });
-      }
-    });
-    
-    socket.on('playerData', (data: Player) => {
-      setPlayer(data);
-    });
-
-    let savedPlayerId: string | null = null;
-    try {
-      savedPlayerId = localStorage.getItem('bingo_player_id');
-    } catch (e) {
-      console.warn('localStorage not available', e);
+    if (!userId) {
+      navigate('/');
+      return;
     }
 
-    fetch('/api/state').then(r => r.json()).then(data => {
-      setGameState(data.gameState);
-      if (data.players) setPlayers(data.players);
-    }).catch(e => console.error(e));
+    const newSocket = io();
+    setSocket(newSocket);
 
-    const onConnect = () => {
-      socket.emit('requestState');
-      if (savedPlayerId) {
-        socket.emit('joinPlayer', savedPlayerId);
+    newSocket.on('connect', () => {
+      newSocket.emit('requestState');
+    });
+
+    newSocket.on('stateUpdate', (data: GameState) => {
+      setGameState(data);
+      const currentUser = data.users.find(u => u.id === userId);
+      if (currentUser) setUser(currentUser);
+      
+      if (data.rodada) {
+        const myCards = data.cartelas.filter(c => c.user_id === userId && c.rodada_id === data.rodada?.id);
+        setCartelas(myCards);
+      } else {
+        setCartelas([]);
       }
-    };
-    socket.on('connect', onConnect);
-    if (socket.connected) onConnect();
-
-    if (savedPlayerId) {
-      socket.emit('joinPlayer', savedPlayerId);
-      // Fetch full player data
-      fetch(`/api/player/${savedPlayerId}`)
-        .then(r => r.json())
-        .then(data => {
-          if (!data.error) setPlayer(data);
-        });
-    }
+      setLoading(false);
+    });
 
     return () => {
-      socket.off('stateUpdate');
-      socket.off('playerData');
+      newSocket.close();
     };
-  }, []);
+  }, [navigate, userId]);
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+  const buyCards = async (count: number) => {
     try {
-      const res = await fetch('/api/register', {
+      await fetch('/api/buy_cards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, tickets_count: tickets })
+        body: JSON.stringify({ userId, count })
+      });
+    } catch (e) {
+      alert("Erro ao comprar cartelas");
+    }
+  };
+
+  const callBingo = async (cartelaId: string) => {
+    try {
+      const res = await fetch('/api/bingo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cartelaId })
       });
       const data = await res.json();
-      if (data.error) {
-        alert(data.error);
-      } else {
-        setPlayer(data);
-        try {
-          localStorage.setItem('bingo_player_id', data.id);
-        } catch (e) {
-          console.warn('localStorage setItem failed');
-        }
-        socket.emit('joinPlayer', data.id);
-      }
+      if (!res.ok) alert(data.error);
     } catch (e) {
-      alert("Erro ao conectar.");
-    }
-    setIsLoading(false);
-  };
-
-  const handleBaterBingo = async () => {
-    if (!player) return;
-    try {
-      await fetch('/api/bingo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId: player.id })
-      });
-    } catch (e) {
-      console.error(e);
+      alert("Erro ao gritar bingo!");
     }
   };
 
-  if (!gameState) {
-    return <div className="min-h-screen bg-zinc-950 flex justify-center items-center text-zinc-400">Carregando...</div>;
-  }
+  if (loading) return <div className="min-h-screen bg-[#050505] flex items-center justify-center text-[#FFD700]">Carregando...</div>;
 
-  // Se não tem player, mostra tela de login/compra
-  if (!player) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md bg-zinc-900 p-8 rounded-3xl shadow-xl border border-zinc-800">
-          <h1 className="text-4xl font-black text-amber-500 text-center mb-2">BINGO DO PIER</h1>
-          <p className="text-zinc-400 text-center mb-8">Entre para jogar</p>
-          
-          <form onSubmit={handleRegister} className="space-y-4">
-            <div>
-              <label className="block text-zinc-300 mb-1">Seu Nome</label>
-              <input 
-                required 
-                type="text" 
-                value={name} 
-                onChange={e => setName(e.target.value)} 
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                placeholder="Ex: João Silva"
-              />
-            </div>
-            <div>
-              <label className="block text-zinc-300 mb-1">Seu Telefone / WhatsApp</label>
-              <input 
-                required 
-                type="tel" 
-                value={phone} 
-                onChange={e => setPhone(e.target.value)} 
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                placeholder="(11) 99999-9999"
-              />
-            </div>
-            <div>
-              <label className="block text-zinc-300 mb-1">Quantas cartelas? (R$ 1,00 cada)</label>
-              <select 
-                value={tickets} 
-                onChange={e => setTickets(Number(e.target.value))}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-              >
-                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} cartela{n > 1 ? 's' : ''} - R$ {n},00</option>)}
-              </select>
-            </div>
-            <button 
-              disabled={isLoading} 
-              className="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold py-4 rounded-xl mt-6 transition-colors disabled:opacity-50"
-            >
-              {gameState.status !== 'waiting_purchases' ? (isLoading ? 'Aguarde...' : 'Entrar (Cadastro Existente)') : (isLoading ? 'Aguarde...' : 'Comprar / Entrar')}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  // Se tem player, mas não pagou
-  if (!player.paid_status) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md bg-zinc-900 p-8 rounded-3xl shadow-xl border border-zinc-800 text-center">
-          <h2 className="text-2xl font-bold text-white mb-4">Pagamento Pendente</h2>
-          <p className="text-zinc-400 mb-6">Para liberar suas {player.tickets_count} cartelas, faça o Pix no valor de <strong className="text-white text-xl">R$ {player.tickets_count.toFixed(2)}</strong></p>
-          
-          <div className="bg-zinc-950 p-6 rounded-xl border border-zinc-800 mb-6">
-            <p className="text-zinc-500 mb-2 text-sm uppercase tracking-wider">Chave Pix (Celular)</p>
-            <p className="text-3xl font-mono text-amber-500 font-bold select-all">22992040941</p>
-          </div>
-
-          <p className="text-amber-500/80 mb-6 font-semibold animate-pulse">
-            Envie o comprovante para este mesmo número e aguarde a liberação do Admin!
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Tela do Jogo
-  const isBingoPaused = gameState.status.startsWith('bingo_paused');
+  const rodadaStatus = gameState?.rodada?.status;
+  const drawnNumbers = gameState?.rodada?.sorteio_atual_json || [];
 
   return (
-    <div className="min-h-screen bg-zinc-950 pb-24">
-      {/* Header Sticky */}
-      <div className="sticky top-0 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 p-4 z-50">
-        <div className="flex justify-between items-center max-w-2xl mx-auto">
-          <div>
-            <p className="text-xs text-zinc-400 uppercase tracking-widest">Prêmios</p>
-            <p className="text-lg font-bold text-amber-500">Total: R$ {gameState.total_pool.toFixed(2)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-zinc-400 uppercase tracking-widest">Jogadores</p>
-            <p className="text-lg font-bold text-white">{players.filter(p => p.paid_status).length} <span className="text-sm font-normal text-green-500">online</span></p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-zinc-400 uppercase tracking-widest">Bolas Sorteadas</p>
-            <p className="text-lg font-bold text-white">{gameState.drawn_numbers.length} / 90</p>
-          </div>
+    <div className="min-h-screen bg-[#050505] p-4 font-sans text-white pb-24">
+      {/* Header Profile */}
+      <div className="flex justify-between items-center bg-[#111] p-4 rounded-2xl border border-[#333] mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-white">{user?.nome_completo}</h2>
+          <p className="text-sm text-gray-400">Fiado: <span className={user && user.saldo_fiado > 0 ? 'text-red-400' : 'text-green-400'}>R$ {user?.saldo_fiado},00</span></p>
         </div>
-        
-        {/* Ultimas 5 bolas */}
-        <div className="max-w-2xl mx-auto mt-3 flex justify-end gap-2 overflow-x-auto pb-1">
-          {[...gameState.drawn_numbers].slice(-5).reverse().map((num, i) => (
-            <div key={num} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${i === 0 ? 'bg-amber-500 text-zinc-900' : 'bg-zinc-800 text-zinc-400'}`}>
-              {num}
+        <button onClick={() => { localStorage.clear(); navigate('/'); }} className="text-sm bg-[#222] px-3 py-2 rounded-lg text-gray-400 hover:text-white">Sair</button>
+      </div>
+
+      {/* Status da Rodada */}
+      <div className="mb-8 text-center">
+        {rodadaStatus === 'aberta' && (
+          <div className="bg-[#1a1a00] border border-[#FFD700] rounded-2xl p-6">
+            <h3 className="text-[#FFD700] font-black text-2xl uppercase mb-2 animate-pulse">Rodada Aberta!</h3>
+            <p className="text-gray-300 mb-6">Compre suas cartelas antes do sorteio começar.</p>
+            <div className="flex gap-4 justify-center">
+               {[1, 2, 3].map(n => (
+                 <button 
+                   key={n}
+                   onClick={() => buyCards(n)}
+                   className="bg-[#222] border-2 border-[#444] hover:border-[#FFD700] hover:bg-[#333] w-16 h-16 rounded-2xl text-xl font-bold transition-all"
+                 >
+                   +{n}
+                 </button>
+               ))}
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="max-w-2xl mx-auto p-4 space-y-6 mt-4">
-        {player.cards.map((card, i) => (
-          <BingoCard key={i} card={card} drawnNumbers={gameState.drawn_numbers} cardIndex={i} />
-        ))}
-      </div>
-
-      {/* Floating Bater Bingo Button */}
-      {gameState.status === 'playing' && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-zinc-950 to-transparent">
-          <div className="max-w-md mx-auto">
-            <button 
-              onClick={handleBaterBingo}
-              className="w-full bg-green-500 hover:bg-green-600 active:scale-95 transition-all text-white font-black text-2xl py-5 rounded-2xl shadow-[0_10px_30px_rgba(34,197,94,0.3)]"
-            >
-              BATER BINGO!
-            </button>
+            {cartelas.length > 0 && <p className="mt-4 text-green-400 font-bold">Você tem {cartelas.length} cartela(s)! Vá até o caixa para pagar (Pix ou Fiado).</p>}
           </div>
-        </div>
-      )}
+        )}
 
-      {isBingoPaused && (
-        <div className="fixed inset-0 bg-green-600/90 backdrop-blur-sm z-[100] flex flex-col items-center justify-center p-6 text-center animate-pulse">
-          <h1 className="text-6xl font-black text-white mb-4">BINGO!</h1>
-          <p className="text-2xl text-green-100 font-bold">Alguém bateu o bingo! O jogo está pausado para verificação.</p>
-        </div>
-      )}
-      
-      {gameState.status === 'finished' && (
-        <div className="fixed inset-0 bg-zinc-950/95 backdrop-blur-md z-[100] flex flex-col items-center justify-center p-6 text-center">
-          <h1 className="text-5xl font-black text-amber-500 mb-4 uppercase">Fim de Jogo!</h1>
-          <p className="text-xl text-zinc-300 font-medium mb-8 max-w-sm">O sorteio atual foi finalizado. Aguarde o administrador iniciar uma nova rodada.</p>
-          <button onClick={() => window.location.href = '/'} className="bg-amber-500 hover:bg-amber-600 text-black font-bold py-4 px-8 rounded-xl uppercase tracking-wider text-sm transition-colors">Voltar ao Início</button>
-        </div>
-      )}
+        {rodadaStatus === 'andamento' && (
+          <div>
+            <div className="inline-block bg-[#00FF00]/10 border border-[#00FF00] px-6 py-2 rounded-full mb-4">
+              <span className="text-[#00FF00] font-bold uppercase tracking-wider">Jogo em Andamento</span>
+            </div>
+            
+            {drawnNumbers.length > 0 && (
+              <motion.div 
+                key={drawnNumbers[drawnNumbers.length - 1]}
+                initial={{ scale: 0.5, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="w-32 h-32 mx-auto bg-gradient-to-br from-[#FFD700] to-[#ffaa00] rounded-full flex items-center justify-center border-4 border-white shadow-[0_0_30px_rgba(255,215,0,0.5)] mb-4"
+              >
+                <span className="text-6xl font-black text-black">{drawnNumbers[drawnNumbers.length - 1]}</span>
+              </motion.div>
+            )}
+            
+            <div className="flex flex-wrap gap-2 justify-center max-w-sm mx-auto h-20 overflow-y-auto">
+              {drawnNumbers.slice(0, -1).reverse().map(n => (
+                <div key={n} className="w-8 h-8 rounded-full bg-[#222] border border-[#444] flex items-center justify-center text-sm font-bold text-gray-400">
+                  {n}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
+        {rodadaStatus === 'finalizada' && (
+          <div className="bg-red-900/20 border border-red-500 rounded-2xl p-6">
+            <h3 className="text-red-500 font-black text-2xl uppercase mb-2">BINGO!</h3>
+            <p className="text-gray-300">Rodada finalizada. O vencedor foi: <span className="font-bold text-white">{gameState?.users.find(u => u.id === gameState?.rodada?.vencedor_id)?.nome_completo || 'Alguém'}</span></p>
+          </div>
+        )}
+        
+        {!rodadaStatus && (
+           <div className="text-gray-500 italic py-10">Aguardando abertura de nova rodada pelo administrador...</div>
+        )}
+      </div>
+
+      {/* Cartelas */}
+      {cartelas.length > 0 && (
+        <div className="space-y-6">
+          <h3 className="text-xl font-bold border-b border-[#333] pb-2">Suas Cartelas ({cartelas.length})</h3>
+          
+          {cartelas.map((cartela, i) => {
+            const isPaga = cartela.status === 'pago_pix' || cartela.status === 'fiado';
+            return (
+              <div key={cartela.id} className={`bg-[#111] p-4 rounded-2xl border ${isPaga ? 'border-[#333]' : 'border-red-500/50'}`}>
+                <div className="flex justify-between items-center mb-4">
+                   <span className="font-bold text-gray-400 uppercase tracking-wider text-sm">Cartela {i + 1}</span>
+                   {isPaga ? (
+                     <span className="bg-green-900/30 text-green-400 px-3 py-1 rounded-lg text-xs font-bold uppercase border border-green-500/50">Válida</span>
+                   ) : (
+                     <span className="bg-red-900/30 text-red-400 px-3 py-1 rounded-lg text-xs font-bold uppercase border border-red-500/50">Pendente Pgto</span>
+                   )}
+                </div>
+                
+                <div className="grid grid-cols-5 gap-1 mb-4 relative">
+                  {/* Bloqueador visual se não estiver paga e em andamento */}
+                  {!isPaga && rodadaStatus === 'andamento' && (
+                    <div className="absolute inset-0 z-10 bg-black/80 backdrop-blur-sm flex items-center justify-center rounded-xl">
+                      <span className="text-red-500 font-bold uppercase text-center px-4">Cartela Inválida<br/><span className="text-sm">Não foi paga no caixa</span></span>
+                    </div>
+                  )}
+                  
+                  {['B', 'I', 'N', 'G', 'O'].map((letter, colIdx) => (
+                    <div key={letter} className="flex flex-col gap-1">
+                      <div className="bg-[#222] text-center font-black py-2 rounded text-[#FFD700]">{letter}</div>
+                      {cartela.numeros_json[letter as keyof typeof cartela.numeros_json].map((num, rowIdx) => {
+                        if (letter === 'N' && rowIdx === 2) {
+                          return (
+                            <div key="free" className="bg-[#FFD700]/20 text-[#FFD700] aspect-square flex items-center justify-center rounded text-xs font-black">
+                              FREE
+                            </div>
+                          );
+                        }
+                        const isDrawn = drawnNumbers.includes(num);
+                        return (
+                          <div 
+                            key={`${letter}-${rowIdx}`}
+                            className={`aspect-square flex items-center justify-center rounded font-bold text-lg border transition-colors ${
+                              isDrawn 
+                                ? 'bg-[#00FF00] text-black border-[#00FF00]' 
+                                : 'bg-[#1a1a1a] text-gray-300 border-[#333]'
+                            }`}
+                          >
+                            {num}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+                
+                <button 
+                  onClick={() => callBingo(cartela.id)}
+                  disabled={!isPaga || rodadaStatus !== 'andamento'}
+                  className="w-full bg-[#FFD700] hover:bg-[#e6c200] disabled:bg-[#333] disabled:text-gray-500 text-black font-black py-4 rounded-xl text-xl uppercase tracking-widest transition-transform active:scale-95"
+                >
+                  Gritar Bingo!
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,398 +1,179 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { io } from 'socket.io-client';
-import { GameState, Player } from '../types';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { io, Socket } from 'socket.io-client';
+import { motion } from 'motion/react';
+import { QRCodeSVG } from 'qrcode.react';
+import { GameState } from '../types';
 
-const socket = io();
-
-export default function TV() {
-  
+export function TV() {
+  const navigate = useNavigate();
+  const [token, setToken] = useState(localStorage.getItem('tvToken') || '');
+  const [senha, setSenha] = useState('');
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [players, setPlayers] = useState<Player[]>([]);
-  const lastDrawnRef = useRef<number | null>(null);
-
-  
-  
-  const [player, setPlayer] = useState<Player | null>(null);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [tickets, setTickets] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    let savedPlayerId = null;
-    try { savedPlayerId = localStorage.getItem('bingo_tv_player_id'); } catch(e) {}
-    if (savedPlayerId) {
-      fetch('/api/player/' + savedPlayerId)
-        .then(r => r.json())
-        .then(data => {
-          if (!data.error) setPlayer(data);
-        });
-    }
-  }, []);
+    if (!token) return;
+    const newSocket = io();
+    newSocket.on('connect', () => newSocket.emit('requestState'));
+    newSocket.on('stateUpdate', (data: GameState) => setGameState(data));
+    return () => { newSocket.close(); };
+  }, [token]);
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
     try {
-      const res = await fetch('/api/register', {
+      const res = await fetch('/api/tv/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, tickets_count: tickets })
+        body: JSON.stringify({ senha })
       });
       const data = await res.json();
-      if (data.error) {
-        alert(data.error);
+      if (res.ok) {
+        setToken('authenticated');
+        localStorage.setItem('tvToken', 'authenticated');
       } else {
-        setPlayer(data);
-        try { localStorage.setItem('bingo_tv_player_id', data.id); } catch(e) {}
-        socket.emit('joinPlayer', data.id);
+        alert(data.error);
       }
     } catch (e) {
-      alert("Erro");
+      alert('Erro no login');
     }
-    setIsLoading(false);
   };
 
-  if (!gameState) {
-    return <div className="min-h-screen bg-black text-white flex items-center justify-center">Carregando...</div>;
-  }
-
-  if (!player) {
+  if (!token) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md bg-[#111] p-8 rounded-3xl shadow-xl border border-[#333]">
-          <h1 className="text-4xl font-black text-[#FFD700] text-center mb-2">BINGO DO PIER (TV)</h1>
-          <p className="text-gray-400 text-center mb-8">Faça login para exibir o painel</p>
-          <form onSubmit={handleRegister} className="space-y-4">
-            <div>
-              <label className="block text-gray-300 mb-1">Seu Nome</label>
-              <input required type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-black border border-[#333] rounded-xl px-4 py-3 text-white" />
-            </div>
-            <div>
-              <label className="block text-gray-300 mb-1">Seu Telefone / WhatsApp</label>
-              <input required type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="w-full bg-black border border-[#333] rounded-xl px-4 py-3 text-white" />
-            </div>
-            <div>
-              <label className="block text-gray-300 mb-1">Quantas cartelas?</label>
-              <select value={tickets} onChange={e => setTickets(Number(e.target.value))} className="w-full bg-black border border-[#333] rounded-xl px-4 py-3 text-white">
-                {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} cartela(s)</option>)}
-              </select>
-            </div>
-            <button disabled={isLoading} className="w-full bg-[#00FF00] text-black font-bold py-4 rounded-xl mt-6">{isLoading ? 'Aguarde...' : 'Entrar'}</button>
-          </form>
-        </div>
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4 text-white">
+        <form onSubmit={handleLogin} className="bg-[#111] p-8 rounded-2xl w-full max-w-sm border border-[#333]">
+          <h2 className="text-2xl font-bold mb-6 text-center text-[#FFD700]">Tela da TV</h2>
+          <input className="w-full bg-[#222] border border-[#333] p-3 rounded mb-6 focus:border-[#FFD700] outline-none text-center text-xl tracking-[1em]" type="password" placeholder="PIN" value={senha} onChange={e => setSenha(e.target.value)} maxLength={4} />
+          <div className="flex gap-4">
+            <button type="button" onClick={() => navigate('/')} className="w-1/3 bg-[#222] text-white font-bold p-3 rounded hover:bg-[#333] border border-[#444]">Voltar</button>
+            <button type="submit" className="w-2/3 bg-[#FFD700] text-black font-bold p-3 rounded hover:bg-[#e6c200]">Entrar</button>
+          </div>
+        </form>
       </div>
     );
   }
 
-  if (!player.paid_status) {
-    return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md bg-[#111] p-8 rounded-3xl shadow-xl border border-[#333] text-center">
-          <h2 className="text-2xl font-bold text-white mb-4">Pagamento Pendente</h2>
-          <p className="text-gray-400 mb-6">Para liberar o telão, confirme o pagamento.</p>
-        </div>
-      </div>
-    );
-  }
+  const rodadaStatus = gameState?.rodada?.status;
+  const drawnNumbers = gameState?.rodada?.sorteio_atual_json || [];
+  const latestDrawn = drawnNumbers.length > 0 ? drawnNumbers[drawnNumbers.length - 1] : null;
 
-  useEffect(() => {
-    socket.on('stateUpdate', (data: { gameState: GameState; players: Player[] }) => {
-      setGameState(data.gameState);
-      setPlayers(data.players);
-      setPlayer(curr => {
-        if (curr && !data.players.find(p => p.id === curr.id)) {
-          try { localStorage.removeItem('bingo_tv_player_id'); } catch(e) {}
-          return null;
-        }
-        return curr;
-      });
-    });
-    
-    socket.on('playerData', (data: Player) => {
-      setPlayer(data);
-    });
-    
-    let savedPlayerId = null;
-    try { savedPlayerId = localStorage.getItem('bingo_tv_player_id'); } catch(e) {}
-    
-    const onConnect = () => {
-      socket.emit('requestState');
-      if (savedPlayerId) socket.emit('joinPlayer', savedPlayerId);
-    };
-
-    
-    fetch('/api/state').then(r => r.json()).then(data => {
-      setGameState(data.gameState);
-      if (data.players) setPlayers(data.players);
-    }).catch(e => console.error(e));
-
-    
-    socket.on('connect', onConnect);
-    if (socket.connected) onConnect();
-
-    return () => {
-      socket.off('stateUpdate');
-      socket.off('playerData');
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!gameState) return;
-    const drawn = gameState.drawn_numbers;
-    if (drawn.length > 0) {
-      const current = drawn[drawn.length - 1];
-      if (current !== lastDrawnRef.current) {
-        lastDrawnRef.current = current;
-        if (gameState.status === 'playing') {
-          speakNumber(current);
-        }
-      }
-    } else {
-      lastDrawnRef.current = null;
-    }
-  }, [gameState]);
-
-  const speakNumber = (number: number) => {
-    let letter = '';
-    if (number <= 15) letter = 'B';
-    else if (number <= 30) letter = 'I';
-    else if (number <= 45) letter = 'N';
-    else if (number <= 60) letter = 'G';
-    else letter = 'O';
-
-    const text = `Bola ${number}, letra ${letter}, ${number}`;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'pt-BR';
-    utterance.rate = 0.9;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  if (!gameState) {
-    return <div className="min-h-screen bg-zinc-950 flex justify-center items-center text-zinc-400">Carregando...</div>;
-  }
-
-  const isBingoPaused = gameState.status.startsWith('bingo_paused');
-  const currentWinnerId = isBingoPaused 
-    ? (gameState.status === 'bingo_paused_1' ? gameState.winner_1 
-      : gameState.status === 'bingo_paused_2' ? gameState.winner_2 
-      : gameState.winner_3)
-    : null;
-    
-  const currentWinner = players.find(p => p.id === currentWinnerId);
-  
-  const currentNumber = gameState.drawn_numbers.length > 0 
-    ? gameState.drawn_numbers[gameState.drawn_numbers.length - 1] 
-    : null;
-
-  const getPrizeText = () => {
-    if (gameState.status === 'bingo_paused_1') return '1º Lugar (50%) - R$ ' + (gameState.total_pool * 0.5).toFixed(2);
-    if (gameState.status === 'bingo_paused_2') return '2º Lugar (20%) - R$ ' + (gameState.total_pool * 0.2).toFixed(2);
-    if (gameState.status === 'bingo_paused_3') return '3º Lugar (10%) - R$ ' + (gameState.total_pool * 0.1).toFixed(2);
-    return '';
-  };
+  const appUrl = window.location.origin;
 
   return (
-    <div className={`h-screen w-full flex flex-col font-sans overflow-hidden select-none transition-colors duration-300 ${isBingoPaused ? 'bg-[#00FF00] animate-pulse text-black' : 'bg-[#050505] text-white'}`}>
+    <div className="min-h-screen bg-[#000] text-white overflow-hidden flex flex-col p-8 font-sans">
       
-      {/* Header Section */}
-      <header className={`h-20 border-b flex items-center justify-between px-8 shrink-0 ${isBingoPaused ? 'bg-[#00cc00] border-[#009900]' : 'bg-[#111] border-[#333]'}`}>
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-[#00FF00] rounded-lg flex items-center justify-center rotate-45">
-            <span className="text-black font-black text-2xl -rotate-45">B</span>
-          </div>
-          <div>
-            <h1 className="text-2xl font-black tracking-tighter">BINGO DO PIER</h1>
-            <p className={`text-xs font-mono tracking-widest uppercase ${isBingoPaused ? 'text-black' : 'text-[#00FF00]'}`}>Sorteio Automático • 8s</p>
-          </div>
+      <div className="flex justify-between items-center mb-8 border-b border-[#333] pb-4">
+        <h1 className="text-5xl font-black text-[#FFD700] uppercase tracking-tighter">BINGO DO PÍER</h1>
+        <div className="text-3xl font-bold bg-[#111] px-6 py-2 rounded-xl border border-[#333]">
+          {rodadaStatus === 'aberta' && <span className="text-[#00FF00]">VENDAS ABERTAS</span>}
+          {rodadaStatus === 'andamento' && <span className="text-blue-400">SORTEIO EM ANDAMENTO</span>}
+          {rodadaStatus === 'finalizada' && <span className="text-red-500">RODADA ENCERRADA</span>}
+          {!rodadaStatus && <span className="text-gray-500">AGUARDANDO...</span>}
         </div>
-        
-        <div className="flex gap-8">
-          <div className="text-center">
-            <p className={`text-[10px] uppercase tracking-widest ${isBingoPaused ? 'text-black/70' : 'text-gray-400'}`}>Total Acumulado</p>
-            <p className={`text-2xl font-bold ${isBingoPaused ? 'text-black' : 'text-[#FFD700]'}`}>R$ {gameState.total_pool.toFixed(2)}</p>
-          </div>
-          <div className={`h-10 w-[1px] ${isBingoPaused ? 'bg-[#009900]' : 'bg-[#333]'}`}></div>
-          <div className="text-center">
-            <p className={`text-[10px] uppercase tracking-widest ${isBingoPaused ? 'text-black/70' : 'text-gray-400'}`}>Próxima Bola</p>
-            <div className="flex gap-1 justify-center mt-1">
-              <div className={`w-2 h-2 rounded-full animate-pulse ${isBingoPaused ? 'bg-black' : 'bg-[#00FF00]'}`}></div>
-              <div className={`w-2 h-2 rounded-full ${isBingoPaused ? 'bg-black/30' : 'bg-[#333]'}`}></div>
-              <div className={`w-2 h-2 rounded-full ${isBingoPaused ? 'bg-black/30' : 'bg-[#333]'}`}></div>
-            </div>
-          </div>
-        </div>
+      </div>
 
-        <div className={`border px-4 py-2 rounded flex flex-col items-end ${isBingoPaused ? 'bg-[#00cc00] border-[#009900]' : 'bg-black border-[#333]'}`}>
-          <span className={`text-[10px] uppercase font-bold ${isBingoPaused ? 'text-black/70' : 'text-gray-500'}`}>PIX CHAVE</span>
-          <span className={`text-sm font-mono ${isBingoPaused ? 'text-black' : 'text-[#00FF00]'}`}>22992040941</span>
-        </div>
-      </header>
-
-      {/* Main Content Grid */}
-      <main className="flex-1 flex overflow-hidden">
-        
-        {/* LEFT: History Grid (25%) */}
-        <section className={`w-1/4 border-r p-4 flex flex-col ${isBingoPaused ? 'bg-[#00FF00] border-[#009900]' : 'bg-[#0a0a0a] border-[#333]'}`}>
-          <h2 className={`text-xs font-bold uppercase mb-4 border-l-2 pl-2 ${isBingoPaused ? 'text-black border-black' : 'text-gray-500 border-[#00FF00]'}`}>Números Sorteados</h2>
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-5 gap-1 content-start pb-4">
-              {Array.from({ length: 75 }, (_, i) => i + 1).map((num) => {
-                const isDrawn = gameState.drawn_numbers.includes(num);
-                const isLast = gameState.drawn_numbers[gameState.drawn_numbers.length - 1] === num;
-                return (
-                  <div 
-                    key={num}
-                    className={`aspect-square flex items-center justify-center text-[10px] font-bold border ${
-                      isLast 
-                        ? 'bg-[#00FF00] border-[#00FF00] text-black shadow-[0_0_10px_#00FF00]' 
-                        : isDrawn 
-                          ? (isBingoPaused ? 'bg-black text-[#00FF00] border-black' : 'bg-[#111] border-[#222] text-[#00FF00]')
-                          : (isBingoPaused ? 'bg-[#00cc00] border-[#00cc00] text-black/30' : 'bg-[#111] border-[#222] text-gray-600')
-                    }`}
-                  >
-                    {num.toString().padStart(2, '0')}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          
-          <div className={`mt-4 p-3 rounded border ${isBingoPaused ? 'bg-[#00cc00] border-[#009900]' : 'bg-[#111] border-[#222]'}`}>
-            <p className={`text-[10px] uppercase ${isBingoPaused ? 'text-black/70' : 'text-gray-500'}`}>Últimas Bolas</p>
-            <div className="flex gap-2 mt-2">
-              {[...gameState.drawn_numbers].slice(-3).reverse().map(num => {
-                let letter = '';
-                if (num <= 15) letter = 'B';
-                else if (num <= 30) letter = 'I';
-                else if (num <= 45) letter = 'N';
-                else if (num <= 60) letter = 'G';
-                else letter = 'O';
-                return (
-                  <div key={num} className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs ${isBingoPaused ? 'border-black text-black' : 'border-gray-700 text-white'}`}>
-                    {letter}-{num}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        {/* CENTER: Big Ball (50%) */}
-        <section className="w-1/2 flex flex-col items-center justify-center relative p-8">
-          {!isBingoPaused && <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#111_0%,_transparent_70%)] opacity-50"></div>}
-          
-          {gameState.status === 'waiting_purchases' && (
-            <div className="relative z-10 text-center">
-              <h1 className="text-6xl font-black text-[#FFD700] mb-8 tracking-tighter">BINGO DO PIER</h1>
-              <p className="text-2xl text-gray-400 mb-4">Compre suas cartelas pelo celular!</p>
-              <div className="text-2xl bg-black p-6 rounded border border-[#333] inline-block">
-                Acesse: <span className="text-[#00FF00] font-mono">{window.location.host}/jogar</span>
-              </div>
-              <div className="mt-12 text-gray-500 text-xl animate-pulse font-mono uppercase tracking-widest">Aguardando início...</div>
-            </div>
-          )}
-
-          {gameState.status === 'finished' && (
-            <div className="relative z-10 text-center">
-              <h1 className="text-7xl font-black text-[#FFD700] mb-8 tracking-tighter uppercase">Fim de Jogo!</h1>
-              <p className="text-3xl text-gray-400 mb-4">Sorteio Finalizado.</p>
-              <div className="text-xl bg-black p-4 rounded border border-[#333] inline-block mb-8 text-[#00FF00]">
-                Aguardando nova rodada...
-              </div>
-            </div>
-          )}
-
-
-          {gameState.status === 'playing' && currentNumber && (
-            <AnimatePresence mode="wait">
-              <motion.div 
-                key={currentNumber}
-                initial={{ scale: 0.5, opacity: 0, rotate: -10 }}
-                animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                exit={{ scale: 1.5, opacity: 0, rotate: 10 }}
-                transition={{ type: "spring", duration: 0.6 }}
-                className="relative z-10 text-center"
+      {rodadaStatus === 'andamento' && (
+        <div className="flex-1 flex gap-12 relative">
+          {/* Main Ball */}
+          <div className="w-1/3 flex flex-col items-center justify-center bg-[#111] rounded-3xl border border-[#333] p-12">
+            <h2 className="text-4xl text-gray-400 font-bold mb-8 uppercase tracking-widest">Última Bola</h2>
+            {latestDrawn ? (
+              <motion.div
+                key={latestDrawn}
+                initial={{ scale: 0, rotate: -180 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+                className="w-full aspect-square bg-gradient-to-br from-[#FFD700] to-[#ff9900] rounded-full flex items-center justify-center border-[16px] border-white shadow-[0_0_100px_rgba(255,215,0,0.6)]"
               >
-                <div className="text-[#00FF00] font-mono text-xl tracking-[0.5em] mb-4">
-                  LETRA {currentNumber <= 15 ? 'B' : currentNumber <= 30 ? 'I' : currentNumber <= 45 ? 'N' : currentNumber <= 60 ? 'G' : 'O'}
-                </div>
-                <div className="w-80 h-80 rounded-full border-[12px] border-[#00FF00] bg-black flex items-center justify-center shadow-[0_0_80px_rgba(0,255,0,0.2)]">
-                  <span className="text-[180px] font-black leading-none mt-4 text-white">{currentNumber}</span>
-                </div>
-                <div className="mt-8 flex gap-4 justify-center">
-                  <div className="px-6 py-2 bg-[#111] border border-[#333] rounded-full">
-                    <span className="text-xs text-gray-400 uppercase">Bolas Restantes: </span>
-                    <span className="text-sm font-bold text-white">{75 - gameState.drawn_numbers.length}</span>
-                  </div>
-                </div>
+                <span className="text-[12rem] font-black text-black leading-none">{latestDrawn}</span>
               </motion.div>
-            </AnimatePresence>
-          )}
-
-          {isBingoPaused && currentWinner && (
-            <motion.div 
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="absolute w-[90%] bg-black p-8 rounded-xl flex items-center justify-between border-4 border-white shadow-2xl z-20"
-            >
-              <div className="flex items-center gap-6">
-                <div className="p-4 bg-[#00FF00] rounded-xl text-black animate-pulse">
-                  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                </div>
-                <div>
-                  <p className="text-[#00FF00] font-black text-4xl leading-none uppercase tracking-tighter mb-2">BINGO!</p>
-                  <p className="text-white text-lg font-bold">REVISANDO CARTELA DE: <span className="underline">{currentWinner.name}</span></p>
-                </div>
+            ) : (
+              <div className="w-full aspect-square bg-[#222] rounded-full flex items-center justify-center border-[16px] border-[#333]">
+                <span className="text-6xl font-bold text-gray-600">?</span>
               </div>
-              <div className="text-right">
-                <p className="text-gray-400 text-sm font-bold uppercase tracking-widest mb-1">{getPrizeText().split(' - ')[0]}</p>
-                <p className="text-[#00FF00] text-5xl font-black">{getPrizeText().split(' - ')[1]}</p>
-              </div>
-            </motion.div>
-          )}
-        </section>
-
-        {/* RIGHT: VIP Players (25%) */}
-        <section className={`w-1/4 border-l p-4 flex flex-col ${isBingoPaused ? 'bg-[#00FF00] border-[#009900]' : 'bg-[#0a0a0a] border-[#333]'}`}>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className={`text-xs font-bold uppercase border-l-2 pl-2 ${isBingoPaused ? 'text-black border-black' : 'text-gray-500 border-[#FFD700]'}`}>Jogadores Online</h2>
-            <span className={`text-[10px] px-2 py-1 rounded font-mono ${isBingoPaused ? 'bg-black text-[#00FF00]' : 'bg-[#222] text-gray-400'}`}>{players.filter(p => p.paid_status).length} ONLINE</span>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-            {players.filter(p => p.paid_status).map((p, idx) => (
-              <div key={p.id} className={`flex items-center justify-between p-2 border rounded ${isBingoPaused ? 'bg-[#00cc00] border-[#009900] text-black' : 'bg-[#111] border-[#222] text-white'}`}>
-                <span className="text-sm truncate font-medium">{p.name}</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isBingoPaused ? 'bg-black text-[#00FF00]' : 'bg-[#222] text-white'}`}>{p.tickets_count} CARTELA{p.tickets_count > 1 ? 'S' : ''}</span>
-              </div>
-            ))}
-            {players.filter(p => p.paid_status).length === 0 && (
-              <div className={`text-center text-sm mt-10 font-mono ${isBingoPaused ? 'text-black/50' : 'text-gray-600'}`}>Nenhum jogador online</div>
             )}
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className={`p-3 border-b-2 rounded ${isBingoPaused ? 'bg-[#00cc00] border-black text-black' : 'bg-[#111] border-[#FFD700] text-white'}`}>
-              <p className={`text-[9px] uppercase font-bold ${isBingoPaused ? 'text-black/70' : 'text-gray-500'}`}>2º Lugar (20%)</p>
-              <p className="text-md font-bold">R$ {(gameState.total_pool * 0.2).toFixed(2)}</p>
-            </div>
-            <div className={`p-3 border-b-2 rounded ${isBingoPaused ? 'bg-[#00cc00] border-black/50 text-black' : 'bg-[#111] border-gray-400 text-white'}`}>
-              <p className={`text-[9px] uppercase font-bold ${isBingoPaused ? 'text-black/70' : 'text-gray-500'}`}>3º Lugar (10%)</p>
-              <p className="text-md font-bold">R$ {(gameState.total_pool * 0.1).toFixed(2)}</p>
-            </div>
+          {/* History */}
+          <div className="w-2/3 bg-[#111] rounded-3xl border border-[#333] p-12 flex flex-col">
+             <h2 className="text-4xl text-gray-400 font-bold mb-8 uppercase tracking-widest">Bolas Sorteadas ({drawnNumbers.length})</h2>
+             <div className="flex-1 flex flex-wrap content-start gap-4 overflow-hidden">
+               {drawnNumbers.slice(0, -1).reverse().map(num => (
+                 <motion.div 
+                   key={num}
+                   initial={{ opacity: 0, scale: 0.5 }}
+                   animate={{ opacity: 1, scale: 1 }}
+                   className="w-24 h-24 bg-[#222] rounded-full flex items-center justify-center border-4 border-[#444] text-4xl font-bold text-gray-300"
+                 >
+                   {num}
+                 </motion.div>
+               ))}
+             </div>
           </div>
-        </section>
-      </main>
-
-      {/* Bottom Bar Ticker */}
-      <footer className={`h-12 border-t flex items-center overflow-hidden whitespace-nowrap shrink-0 ${isBingoPaused ? 'bg-[#009900] border-[#009900]' : 'bg-black border-[#333]'}`}>
-        <div className={`px-6 h-full flex items-center font-black text-sm ${isBingoPaused ? 'bg-black text-[#00FF00]' : 'bg-[#00FF00] text-black'}`}>REGRAS</div>
-        <div className={`px-8 text-sm italic ${isBingoPaused ? 'text-black' : 'text-gray-400'}`}>
-          • O sorteio é automático a cada 8 segundos • Clique em "Bater Bingo" quando completar sua cartela • Confirmação de Pix via WhatsApp 22992040941 • Valor por cartela: R$ 1,00 • Divirta-se com responsabilidade!
+          
+          <div className="absolute bottom-0 right-0 p-4 bg-[#111] rounded-2xl border border-[#333] flex flex-col items-center">
+            <p className="text-gray-400 text-sm mb-2 font-bold uppercase tracking-wider">Jogue pelo celular</p>
+            <QRCodeSVG value={`${appUrl}/jogar`} size={100} bgColor="#111" fgColor="#fff" />
+          </div>
         </div>
-      </footer>
+      )}
+
+      {rodadaStatus === 'aberta' && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-12">
+          <div className="text-center">
+            <motion.h1 
+              animate={{ scale: [1, 1.1, 1] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+              className="text-8xl font-black text-[#00FF00] uppercase text-center mb-8"
+            >
+              Vendas Abertas!
+            </motion.h1>
+            <p className="text-5xl text-gray-300">Compre suas cartelas pelo celular agora.</p>
+          </div>
+          <div className="bg-white p-8 rounded-3xl">
+             <QRCodeSVG value={`${appUrl}/jogar`} size={300} />
+          </div>
+          <p className="text-2xl text-gray-400 font-bold tracking-widest">ESCANEIE O QR CODE PARA ENTRAR</p>
+        </div>
+      )}
+
+      {!rodadaStatus && (
+        <div className="flex-1 flex flex-col items-center justify-center text-center gap-12">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-[#111] p-16 rounded-3xl border border-[#333] shadow-2xl max-w-4xl"
+          >
+            <h1 className="text-6xl font-black text-[#FFD700] uppercase mb-8 tracking-widest">
+              Bem Vindo ao Bingo
+            </h1>
+            <p className="text-4xl text-gray-400 font-medium">
+              Aguarde o caixa abrir uma nova rodada.
+            </p>
+          </motion.div>
+          <div className="bg-white p-6 rounded-3xl opacity-80">
+             <QRCodeSVG value={`${appUrl}/jogar`} size={200} />
+          </div>
+          <p className="text-xl text-gray-500 font-bold tracking-widest uppercase">Escaneie para entrar no jogo</p>
+        </div>
+      )}
+
+      {rodadaStatus === 'finalizada' && (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <motion.div 
+             initial={{ scale: 0, opacity: 0 }}
+             animate={{ scale: 1, opacity: 1 }}
+             className="bg-red-900/50 border-[8px] border-red-500 rounded-[3rem] p-24 text-center shadow-[0_0_150px_rgba(255,0,0,0.5)]"
+          >
+            <h1 className="text-9xl font-black text-white uppercase tracking-widest mb-12">BINGO!</h1>
+            <p className="text-6xl text-red-200 font-bold">Temos um ganhador!</p>
+            <p className="text-7xl text-[#FFD700] font-black mt-8">{gameState?.users.find(u => u.id === gameState?.rodada?.vencedor_id)?.nome_completo}</p>
+          </motion.div>
+        </div>
+      )}
+      
+      <button onClick={() => { setToken(''); localStorage.removeItem('tvToken'); }} className="absolute bottom-8 right-8 text-sm text-gray-600 hover:text-gray-400">Sair da TV</button>
     </div>
   );
 }

@@ -43,7 +43,17 @@
       "phone": "55555",
       "tickets_count": 2,
       "paid_status": false,
-      "cards": []
+      "cards": [],
+      "created_at": null
+    },
+    {
+      "id": "d198cd0e-fcde-4c7c-8367-828f86e932d5",
+      "name": "wagner teixeira",
+      "phone": "21975151937",
+      "tickets_count": 3,
+      "paid_status": false,
+      "cards": [],
+      "created_at": null
     }
   ]
 }
